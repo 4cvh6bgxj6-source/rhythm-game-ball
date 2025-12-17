@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
-import { GameState, Song, ScoreData } from './types';
-import SongSelector from './components/SongSelector';
-import Game from './components/Game';
-import Results from './components/Results';
+import { GameState, Song, ScoreData } from './types.ts';
+import SongSelector from './components/SongSelector.tsx';
+import Game from './components/Game.tsx';
+import Results from './components/Results.tsx';
 
 const App: React.FC = () => {
   const [state, setState] = useState<GameState>(GameState.MENU);

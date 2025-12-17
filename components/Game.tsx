@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Song, ScoreData } from '../types';
-import { HIT_WINDOWS } from '../constants';
+import { Song, ScoreData } from '../types.ts';
+import { HIT_WINDOWS } from '../constants.ts';
 import { ChevronLeft, Volume2, Target, Zap } from 'lucide-react';
 
 interface Particle {
@@ -30,7 +30,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContext = useRef<AudioContext | null>(null);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number>(0);
   const startTime = useRef<number>(0);
   const nextBeatTime = useRef<number>(0);
   const beatInterval = (60 / song.bpm) * 1000;
@@ -120,7 +120,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
 
     setLastRating(rating);
     setTimeout(() => setLastRating(null), 500);
-  }, [isActive, playBeatSound, song.color]);
+  }, [isActive, playBeatSound, song.color, nextBeatTime, beatInterval]);
 
   const update = useCallback((time: number) => {
     if (!startTime.current) startTime.current = time;
@@ -144,16 +144,13 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     const wallRight = 580;
     const distance = wallRight - wallLeft;
 
-    // Horizontal movement
     if (ballState.current.side === 'right') {
       ballState.current.x = wallLeft + (progressInBeat * distance);
     } else {
       ballState.current.x = wallRight - (progressInBeat * distance);
     }
 
-    // Vertical JUMP movement (Parabola)
     const jumpHeight = 150;
-    // Math.sin gives us a nice arc from 0 to 1 back to 0
     ballState.current.y = 250 - (Math.sin(progressInBeat * Math.PI) * jumpHeight);
 
     const canvas = canvasRef.current;
@@ -161,33 +158,26 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.save();
-        
-        // Shake logic
         if (shakeAmount.current > 0) {
           ctx.translate((Math.random() - 0.5) * shakeAmount.current, (Math.random() - 0.5) * shakeAmount.current);
           shakeAmount.current *= 0.9;
-          if (shakeAmount.current < 0.5) shakeAmount.current = 0;
         }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Draw Side Walls
         ctx.lineWidth = 12;
         ctx.lineCap = 'round';
         
-        // Left Wall
         ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#1a1a1a';
         ctx.shadowBlur = ballState.current.side === 'left' ? 30 : 0;
         ctx.shadowColor = song.color;
         ctx.beginPath(); ctx.moveTo(wallLeft - 15, 80); ctx.lineTo(wallLeft - 15, 420); ctx.stroke();
         
-        // Right Wall
         ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#1a1a1a';
         ctx.shadowBlur = ballState.current.side === 'right' ? 30 : 0;
         ctx.beginPath(); ctx.moveTo(wallRight + 15, 80); ctx.lineTo(wallRight + 15, 420); ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Draw Particles
         particles.current = particles.current.filter(p => p.life > 0);
         particles.current.forEach(p => {
           ctx.globalAlpha = p.life;
@@ -201,14 +191,12 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         });
         ctx.globalAlpha = 1.0;
 
-        // Ball Trail
         ctx.fillStyle = `${song.color}44`;
         const trailOffset = ballState.current.side === 'right' ? -15 : 15;
         ctx.beginPath();
         ctx.arc(ballState.current.x + trailOffset, ballState.current.y + 5, 12, 0, Math.PI * 2);
         ctx.fill();
 
-        // Draw Ball
         ctx.fillStyle = song.color;
         ctx.shadowBlur = 35;
         ctx.shadowColor = song.color;
@@ -263,7 +251,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       tabIndex={0}
       onKeyDown={handleInput}
     >
-      {/* HUD Top */}
       <div className="absolute top-0 w-full p-8 flex justify-between items-start pointer-events-none z-20">
         <button 
           onClick={(e) => { e.stopPropagation(); onBack(); }}
@@ -286,7 +273,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         </div>
       </div>
 
-      {/* Progress Line */}
       <div className="absolute top-0 left-0 w-full h-1.5 bg-zinc-900/50">
         <div 
           className="h-full shadow-[0_0_20px_white] transition-all duration-300 relative"
@@ -296,7 +282,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         </div>
       </div>
 
-      {/* Arena Background */}
       <div className="absolute inset-0 pointer-events-none opacity-10">
         <div className="grid grid-cols-12 h-full w-full">
            {[...Array(12)].map((_, i) => (
@@ -305,7 +290,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         </div>
       </div>
 
-      {/* Game Stage */}
       <div className="relative w-full max-w-4xl h-[600px] flex items-center justify-center">
         <canvas 
           ref={canvasRef} 
@@ -314,7 +298,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
           className="relative z-10"
         />
         
-        {/* Rating Pop */}
         {lastRating && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
             <div 
@@ -329,7 +312,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
           </div>
         )}
 
-        {/* Combo Counter */}
         {score.combo > 1 && (
           <div className="absolute bottom-12 w-full text-center z-20">
             <div className="inline-flex flex-col items-center">
@@ -342,22 +324,15 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         )}
       </div>
 
-      {/* Start Sequence */}
       {countdown > 0 && (
         <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center">
           <div className="text-zinc-700 font-orbitron mb-8 tracking-[1em] text-xs uppercase animate-pulse">Initializing neural link</div>
           <div className="text-[12rem] font-orbitron font-black text-white leading-none">
             {countdown}
           </div>
-          <div className="mt-12 flex gap-2">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className={`w-3 h-3 rounded-full ${countdown <= i ? 'bg-zinc-800' : 'bg-white shadow-[0_0_10px_white]'}`} />
-            ))}
-          </div>
         </div>
       )}
 
-      {/* Input Legend */}
       <div className="absolute bottom-10 flex flex-col items-center gap-4">
         <div className="flex items-center gap-8 text-[10px] font-orbitron text-zinc-600 tracking-[0.3em] uppercase">
           <div className="flex items-center gap-2">

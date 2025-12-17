@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { SONGS } from '../constants';
-import { Song } from '../types';
+import { SONGS } from '../constants.ts';
+import { Song } from '../types.ts';
 import { Play, Star, Music, Zap } from 'lucide-react';
-import { getSongDescription } from '../services/geminiService';
+import { getSongDescription } from '../services/geminiService.ts';
 
 interface Props {
   onSelect: (song: Song) => void;
@@ -14,12 +14,15 @@ const SongSelector: React.FC<Props> = ({ onSelect }) => {
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    // Prefetch some descriptions
     const fetchDesc = async () => {
       const results: Record<string, string> = {};
       for (const song of SONGS) {
-        const desc = await getSongDescription(song);
-        results[song.id] = desc || "Ready for the challenge?";
+        try {
+          const desc = await getSongDescription(song);
+          results[song.id] = desc || "Pronto alla sfida?";
+        } catch (e) {
+          results[song.id] = "Senti il ritmo!";
+        }
       }
       setDescriptions(results);
     };
@@ -76,9 +79,9 @@ const SongSelector: React.FC<Props> = ({ onSelect }) => {
               <Play className={`w-10 h-10 transition-colors ${hovered === song.id ? 'text-white' : 'text-zinc-700'}`} />
             </div>
 
-            {hovered === song.id && descriptions[song.id] && (
+            {hovered === song.id && (
               <p className="mt-4 text-sm text-zinc-400 italic animate-in fade-in slide-in-from-top-2">
-                "{descriptions[song.id]}"
+                "{descriptions[song.id] || "Caricamento descrizione..."}"
               </p>
             )}
           </button>
@@ -86,7 +89,7 @@ const SongSelector: React.FC<Props> = ({ onSelect }) => {
       </div>
 
       <div className="mt-12 text-zinc-500 text-sm animate-bounce">
-        Choose a track to begin your odyssey
+        Scegli una traccia per iniziare l'odissea
       </div>
     </div>
   );

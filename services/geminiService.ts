@@ -1,11 +1,13 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { Song } from "../types";
+import { Song } from "../types.ts";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Inizializzazione posticipata per evitare errori se process.env non è subito pronto
+const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getGeminiFeedback = async (song: Song, score: number) => {
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Il giocatore ha appena giocato a "${song.title}" (difficoltà ${song.difficulty}) e ha totalizzato ${score} punti. 
@@ -20,6 +22,7 @@ export const getGeminiFeedback = async (song: Song, score: number) => {
 
 export const getSongDescription = async (song: Song) => {
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Scrivi una descrizione hype di massimo 15 parole per un livello di un rhythm game basato sulla canzone "${song.title}". Focus sull'energia.`,
