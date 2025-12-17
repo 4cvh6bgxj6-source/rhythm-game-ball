@@ -9,17 +9,16 @@ export const SONGS: Song[] = [
     bpm: 175,
     difficulty: 'Insane',
     color: '#ff0055',
-    // Utilizziamo un MP3 diretto ad alta velocità che corrisponde allo stile Hardtek richiesto
     audioUrl: 'https://cdn.pixabay.com/audio/2022/10/24/audio_9979720464.mp3' 
   },
   {
     id: '2',
     title: 'Nuts',
-    artist: 'Chill Vibes',
+    artist: 'Lil Peep Style Chill',
     bpm: 90,
     difficulty: 'Easy',
     color: '#00ccff',
-    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3'
+    audioUrl: 'https://cdn.pixabay.com/audio/2021/11/23/audio_0c98f828a1.mp3'
   },
   {
     id: '3',
@@ -33,7 +32,7 @@ export const SONGS: Song[] = [
   {
     id: '4',
     title: 'From the Start',
-    artist: 'Bossa Nova Jazz',
+    artist: 'Laufey Jazz Vibe',
     bpm: 110,
     difficulty: 'Hard',
     color: '#ffaa00',
@@ -42,7 +41,7 @@ export const SONGS: Song[] = [
 ];
 
 export const HIT_WINDOWS = {
-  PERFECT: 60, // Leggermente più permissivo per migliorare il feeling
-  GREAT: 120,
-  GOOD: 180
+  PERFECT: 70, // Finestra di colpo un po' più generosa per divertimento
+  GREAT: 130,
+  GOOD: 200
 };

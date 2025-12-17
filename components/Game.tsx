@@ -36,7 +36,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const analyzer = useRef<AnalyserNode | null>(null);
   const requestRef = useRef<number>(0);
   const startTime = useRef<number>(0);
-  const lastSyncTime = useRef<number>(0);
   const nextBeatTime = useRef<number>(0);
   const beatInterval = (60 / song.bpm) * 1000;
   
@@ -53,7 +52,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     const handleCanPlay = () => setIsAudioLoading(false);
     audio.addEventListener('canplaythrough', handleCanPlay);
     audio.addEventListener('error', (e) => {
-      console.error("Audio Load Error:", e);
+      console.error("Audio Load Error", e);
       setIsAudioLoading(false);
     });
 
@@ -62,6 +61,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       audio.pause();
       audio.src = "";
       if (audioContext.current) audioContext.current.close();
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
   }, [song.audioUrl]);
 
@@ -74,7 +74,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
 
       const source = ctx.createMediaElementSource(audioRef.current);
       const node = ctx.createAnalyser();
-      node.fftSize = 128;
+      node.fftSize = 256;
       source.connect(node);
       node.connect(ctx.destination);
       analyzer.current = node;
@@ -82,18 +82,18 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       
       await ctx.resume();
     } catch (e) {
-      console.warn("Analyzer/Context failed, playing without visualizer", e);
+      console.warn("Analyzer failed, proceeding anyway", e);
     }
     
     setIsReadyToStart(true);
   };
 
   const createParticles = (x: number, y: number, color: string) => {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 15; i++) {
       particles.current.push({
         x, y,
-        vx: (Math.random() - 0.5) * 8,
-        vy: (Math.random() - 0.5) * 8,
+        vx: (Math.random() - 0.5) * 12,
+        vy: (Math.random() - 0.5) * 12,
         life: 1.0,
         color
       });
@@ -110,14 +110,15 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     if (diff <= HIT_WINDOWS.PERFECT) {
       rating = 'PERFECT';
       points = 1000;
-      shakeAmount.current = 12;
+      shakeAmount.current = 15;
     } else if (diff <= HIT_WINDOWS.GREAT) {
       rating = 'GREAT';
       points = 500;
-      shakeAmount.current = 6;
+      shakeAmount.current = 8;
     } else if (diff <= HIT_WINDOWS.GOOD) {
       rating = 'GOOD';
       points = 200;
+      shakeAmount.current = 3;
     }
 
     if (rating !== 'MISS') {
@@ -130,11 +131,11 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
                 good: rating === 'GOOD' ? prev.good + 1 : prev.good,
                 combo: newCombo,
                 maxCombo: Math.max(prev.maxCombo, newCombo),
-                totalScore: prev.totalScore + (points * (1 + newCombo * 0.05))
+                totalScore: prev.totalScore + (points * (1 + newCombo * 0.1))
             };
         });
         createParticles(
-          ballState.current.side === 'left' ? 70 : 570, 
+          ballState.current.side === 'left' ? 65 : 575, 
           ballState.current.y, 
           song.color
         );
@@ -143,68 +144,8 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     }
 
     setLastRating(rating);
-    setTimeout(() => setLastRating(null), 400);
+    setTimeout(() => setLastRating(null), 500);
   }, [isActive, song.color, nextBeatTime]);
-
-  const draw = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number, avgFreq: number) => {
-    ctx.save();
-    
-    // Background Glow
-    const gradient = ctx.createRadialGradient(width/2, height/2, 50, width/2, height/2, 400);
-    gradient.addColorStop(0, '#0a0a0a');
-    gradient.addColorStop(1, '#000000');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
-
-    // Grid Visualizer
-    if (avgFreq > 0) {
-      ctx.strokeStyle = `${song.color}11`;
-      ctx.lineWidth = 1;
-      for(let i=0; i<width; i+=40) {
-        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, height); ctx.stroke();
-      }
-    }
-
-    const wallL = 65;
-    const wallR = 575;
-
-    // Left Wall
-    ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#222';
-    ctx.shadowBlur = ballState.current.side === 'left' ? 20 + avgFreq/5 : 0;
-    ctx.shadowColor = song.color;
-    ctx.lineWidth = 10;
-    ctx.beginPath(); ctx.moveTo(wallL, 100); ctx.lineTo(wallL, 400); ctx.stroke();
-
-    // Right Wall
-    ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#222';
-    ctx.shadowBlur = ballState.current.side === 'right' ? 20 + avgFreq/5 : 0;
-    ctx.beginPath(); ctx.moveTo(wallR, 100); ctx.lineTo(wallR, 400); ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Particles
-    particles.current = particles.current.filter(p => p.life > 0);
-    particles.current.forEach(p => {
-      ctx.globalAlpha = p.life;
-      ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI*2); ctx.fill();
-      p.x += p.vx; p.y += p.vy; p.life -= 0.02;
-    });
-    ctx.globalAlpha = 1.0;
-
-    // THE BALL
-    ctx.fillStyle = song.color;
-    ctx.shadowBlur = 40 + avgFreq/3;
-    ctx.shadowColor = song.color;
-    ctx.beginPath();
-    ctx.arc(ballState.current.x, ballState.current.y, 18 + avgFreq/30, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    ctx.restore();
-  }, [song.color]);
 
   const update = useCallback((time: number) => {
     if (!audioRef.current || !isActive) {
@@ -213,9 +154,8 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     }
 
     const audioTime = audioRef.current.currentTime * 1000;
-    const elapsed = audioTime > 0 ? audioTime : (time - startTime.current);
+    const elapsed = audioTime > 0 ? audioTime : (performance.now() - startTime.current);
     
-    // Beat management
     if (elapsed > nextBeatTime.current) {
       nextBeatTime.current += beatInterval;
       ballState.current.side = ballState.current.side === 'left' ? 'right' : 'left';
@@ -234,7 +174,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       ballState.current.x = wallR - (progressInBeat * distance);
     }
 
-    const jumpHeight = 140;
+    const jumpHeight = 160;
     ballState.current.y = 250 - (Math.sin(progressInBeat * Math.PI) * jumpHeight);
 
     const canvas = canvasRef.current;
@@ -247,27 +187,67 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
           avgFreq = freqData.current.reduce((a, b) => a + b, 0) / freqData.current.length;
         }
 
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
         ctx.save();
         if (shakeAmount.current > 0) {
           ctx.translate((Math.random() - 0.5) * shakeAmount.current, (Math.random() - 0.5) * shakeAmount.current);
-          shakeAmount.current *= 0.85;
+          shakeAmount.current *= 0.9;
         }
-        draw(ctx, canvas.width, canvas.height, avgFreq);
+
+        // Walls
+        ctx.lineWidth = 15;
+        ctx.lineCap = 'round';
+        ctx.shadowBlur = 0;
+
+        // Left
+        ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#111';
+        if (ballState.current.side === 'left') { ctx.shadowBlur = 20; ctx.shadowColor = song.color; }
+        ctx.beginPath(); ctx.moveTo(wallL, 80); ctx.lineTo(wallL, 420); ctx.stroke();
+        
+        // Right
+        ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#111';
+        if (ballState.current.side === 'right') { ctx.shadowBlur = 20; ctx.shadowColor = song.color; }
+        ctx.beginPath(); ctx.moveTo(wallR, 80); ctx.lineTo(wallR, 420); ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Particles
+        particles.current = particles.current.filter(p => p.life > 0);
+        particles.current.forEach(p => {
+          ctx.globalAlpha = p.life;
+          ctx.fillStyle = p.color;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+          p.x += p.vx; p.y += p.vy; p.life -= 0.025;
+        });
+        ctx.globalAlpha = 1.0;
+
+        // THE BALL
+        ctx.fillStyle = song.color;
+        ctx.shadowBlur = 40 + (avgFreq / 4);
+        ctx.shadowColor = song.color;
+        ctx.beginPath();
+        ctx.arc(ballState.current.x, ballState.current.y, 22 + (avgFreq / 30), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
         ctx.restore();
       }
     }
 
-    const dur = audioRef.current.duration || 300; // fallback long duration
+    const dur = audioRef.current.duration || 300;
     const p = (audioRef.current.currentTime / dur) * 100;
     setProgress(p);
 
-    if (audioRef.current.ended || (p >= 100 && audioRef.current.currentTime > 10)) {
+    if (audioRef.current.ended || (p >= 100 && audioTime > 5000)) {
       setIsActive(false);
       onFinish(score);
     } else {
       requestRef.current = requestAnimationFrame(update);
     }
-  }, [isActive, beatInterval, draw, onFinish, score]);
+  }, [isActive, beatInterval, onFinish, score, song.color]);
 
   useEffect(() => {
     if (!isReadyToStart) return;
@@ -278,17 +258,13 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     } else {
       setIsActive(true);
       if (audioRef.current) {
-        audioRef.current.play().catch(e => console.error("Play failed", e));
+        audioRef.current.play().catch(e => console.warn("Autoplay blocked", e));
         startTime.current = performance.now();
         nextBeatTime.current = beatInterval;
-        ballState.current.side = 'right'; 
         requestRef.current = requestAnimationFrame(update);
       }
     }
-    return () => {
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
-    };
-  }, [countdown, beatInterval, update, isReadyToStart]);
+  }, [countdown, isReadyToStart, beatInterval, update]);
 
   const handleInput = (e: React.MouseEvent | React.KeyboardEvent) => {
     if (!isActive) return;
@@ -307,66 +283,62 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       onKeyDown={handleInput}
     >
       {!isReadyToStart && (
-        <div className="absolute inset-0 z-[100] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-24 h-24 rounded-full border-4 border-white/10 flex items-center justify-center mb-8 bg-zinc-900" style={{ borderColor: isAudioLoading ? '#333' : song.color }}>
-                {isAudioLoading ? <Loader2 className="w-10 h-10 text-zinc-600 animate-spin" /> : <Music className="w-10 h-10 text-white" />}
+        <div className="absolute inset-0 z-[100] bg-zinc-950 flex flex-col items-center justify-center p-12 text-center">
+            <div className="w-32 h-32 rounded-3xl flex items-center justify-center mb-8 rotate-3 shadow-2xl" style={{ backgroundColor: song.color }}>
+                {isAudioLoading ? <Loader2 className="w-12 h-12 text-black animate-spin" /> : <Music className="w-12 h-12 text-black" />}
             </div>
-            <h2 className="text-4xl font-orbitron font-bold text-white mb-2">{song.title}</h2>
-            <p className="text-zinc-500 mb-10 uppercase tracking-[0.3em] text-xs">Pronto alla sincronizzazione</p>
+            <h2 className="text-5xl font-orbitron font-black text-white mb-4 tracking-tighter">{song.title}</h2>
+            <p className="text-zinc-500 mb-12 max-w-sm uppercase tracking-[0.2em] font-bold text-xs">Sincronizzazione audio necessaria</p>
             
             <button 
                 onClick={initAudioContext}
                 disabled={isAudioLoading}
-                className="px-16 py-5 bg-white text-black font-orbitron font-black text-2xl rounded-full hover:scale-105 active:scale-95 transition-all flex items-center gap-4 disabled:opacity-20 shadow-[0_0_30px_rgba(255,255,255,0.2)]"
+                className="px-16 py-6 bg-white text-black font-orbitron font-black text-3xl rounded-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-4 disabled:opacity-20 group"
             >
-                {isAudioLoading ? "CARICAMENTO..." : <><Play fill="currentColor" className="w-6 h-6" /> INIZIA ORA</>}
+                {isAudioLoading ? "CARICAMENTO..." : <><Play fill="currentColor" className="w-8 h-8 group-hover:translate-x-1 transition-transform" /> START</>}
             </button>
-            <p className="mt-8 text-zinc-600 text-[10px] uppercase tracking-widest font-bold">L'audio richiede un'azione manuale per le norme del browser</p>
         </div>
       )}
 
       <div className="absolute top-0 w-full p-8 flex justify-between items-start pointer-events-none z-20">
         <button 
           onClick={(e) => { e.stopPropagation(); onBack(); }}
-          className="pointer-events-auto flex items-center gap-2 text-zinc-600 hover:text-white transition-all font-orbitron text-[10px] tracking-[0.3em] group"
+          className="pointer-events-auto flex items-center gap-2 text-zinc-700 hover:text-white transition-all font-orbitron text-[10px] tracking-[0.4em] group"
         >
           <div className="w-8 h-8 rounded-full border border-zinc-800 flex items-center justify-center group-hover:border-white">
             <ChevronLeft className="w-4 h-4" />
           </div>
-          ABORT MISSION
+          MENU
         </button>
 
         <div className="flex flex-col items-end">
-          <div className="flex items-center gap-3">
-             <div className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: song.color }} />
-             <div className="text-6xl font-orbitron font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">
-                {Math.floor(score.totalScore).toLocaleString()}
-             </div>
+          <div className="text-7xl font-orbitron font-black text-white tabular-nums tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+            {Math.floor(score.totalScore).toLocaleString()}
           </div>
-          <div className="text-zinc-700 font-bold text-[9px] tracking-[0.5em] mt-1 uppercase">HYPER SCORE</div>
+          <div className="text-zinc-600 font-bold text-[10px] tracking-[0.5em] mt-1 uppercase" style={{ color: song.color }}>BEAT SCORE</div>
         </div>
       </div>
 
-      <div className="absolute top-0 left-0 w-full h-1 bg-zinc-900">
+      <div className="absolute top-0 left-0 w-full h-2 bg-zinc-900">
         <div 
-          className="h-full shadow-[0_0_15px_white] transition-all duration-300"
+          className="h-full transition-all duration-300 shadow-[0_0_20px_white]"
           style={{ width: `${progress}%`, backgroundColor: song.color }}
         />
       </div>
 
-      <div className="relative w-full max-w-4xl aspect-video flex items-center justify-center">
+      <div className="relative w-full max-w-5xl aspect-video flex items-center justify-center">
         <canvas 
           ref={canvasRef} 
           width={640} 
           height={500} 
-          className="w-full h-auto max-h-[80vh] object-contain relative z-10"
+          className="w-full h-auto max-h-[85vh] object-contain relative z-10"
         />
         
         {lastRating && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
             <div 
-              className={`text-9xl font-orbitron font-black italic transform transition-all duration-200 scale-110 ${
-                lastRating === 'PERFECT' ? 'text-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,0.8)]' :
+              className={`text-[12rem] font-orbitron font-black italic transform transition-all duration-150 scale-110 drop-shadow-2xl ${
+                lastRating === 'PERFECT' ? 'text-yellow-400' :
                 lastRating === 'GREAT' ? 'text-cyan-400' :
                 lastRating === 'GOOD' ? 'text-green-400' : 'text-red-500'
               }`}
@@ -377,36 +349,35 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         )}
 
         {score.combo > 1 && (
-          <div className="absolute bottom-4 w-full text-center z-20">
+          <div className="absolute bottom-10 w-full text-center z-20">
             <div className="inline-flex flex-col items-center">
-              <span className="text-7xl font-orbitron text-white font-black tracking-tighter animate-bounce">
+              <span className="text-[10rem] font-orbitron text-white font-black tracking-tighter leading-none animate-bounce" style={{ color: song.color }}>
                 {score.combo}
               </span>
-              <span className="text-xs font-orbitron text-zinc-600 tracking-[0.6em] -mt-2">COMBO</span>
+              <span className="text-xl font-orbitron text-white/50 tracking-[1em] -mt-4">COMBO</span>
             </div>
           </div>
         )}
       </div>
 
       {isReadyToStart && countdown > 0 && (
-        <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center">
-          <div className="text-zinc-500 font-orbitron mb-4 tracking-[1.5em] text-[10px] uppercase animate-pulse">Syncing heart rate</div>
-          <div className="text-[15rem] font-orbitron font-black text-white leading-none drop-shadow-2xl">
+        <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center">
+          <div className="text-[25rem] font-orbitron font-black text-white leading-none animate-pulse">
             {countdown}
           </div>
         </div>
       )}
 
-      <div className="absolute bottom-8 flex flex-col items-center gap-2">
-        <div className="px-6 py-2 rounded-full border border-zinc-800 bg-black/50 backdrop-blur text-[10px] font-orbitron text-zinc-400 tracking-[0.3em] uppercase flex items-center gap-4">
-          <div className="flex items-center gap-2">
-             <span className="text-white bg-zinc-800 px-2 py-0.5 rounded">SPACE</span>
-             <span>SALTA</span>
+      <div className="absolute bottom-12 flex flex-col items-center gap-2">
+        <div className="px-10 py-4 rounded-3xl bg-zinc-900/80 border border-zinc-800 backdrop-blur-xl text-xs font-orbitron text-zinc-400 tracking-[0.4em] uppercase flex items-center gap-6">
+          <div className="flex items-center gap-3">
+             <span className="text-black bg-white px-3 py-1 rounded-lg font-black">SPACE</span>
+             <span>BOUNCE</span>
           </div>
-          <div className="w-1 h-1 rounded-full bg-zinc-700" />
-          <div className="flex items-center gap-2">
-             <Zap className="w-3 h-3 text-yellow-500" />
-             <span>COLPISCI IL MURO</span>
+          <div className="w-2 h-2 rounded-full bg-zinc-700" />
+          <div className="flex items-center gap-3 text-white">
+             <Zap className="w-5 h-5 text-yellow-500 fill-yellow-500" />
+             <span>SYNC THE BALL</span>
           </div>
         </div>
       </div>
