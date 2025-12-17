@@ -9,7 +9,8 @@ export const SONGS: Song[] = [
     bpm: 175,
     difficulty: 'Insane',
     color: '#ff0055',
-    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' 
+    // Utilizziamo un MP3 diretto ad alta velocità che corrisponde allo stile Hardtek richiesto
+    audioUrl: 'https://cdn.pixabay.com/audio/2022/10/24/audio_9979720464.mp3' 
   },
   {
     id: '2',
@@ -41,7 +42,7 @@ export const SONGS: Song[] = [
 ];
 
 export const HIT_WINDOWS = {
-  PERFECT: 50, // ms
-  GREAT: 100,
-  GOOD: 150
+  PERFECT: 60, // Leggermente più permissivo per migliorare il feeling
+  GREAT: 120,
+  GOOD: 180
 };
