@@ -1,5 +1,5 @@
 
-import { Song } from './types';
+import { Song } from './types.ts';
 
 export const SONGS: Song[] = [
   {
