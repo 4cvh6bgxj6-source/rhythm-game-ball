@@ -2,19 +2,19 @@
 import { GoogleGenAI } from "@google/genai";
 import { Song } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getGeminiFeedback = async (song: Song, score: number) => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `The player just played "${song.title}" (${song.difficulty} difficulty) and scored ${score} points. 
-      Give a short, cool, one-sentence encouraging remark in the style of a rhythm game announcer. Keep it hype!`,
+      contents: `Il giocatore ha appena giocato a "${song.title}" (difficoltà ${song.difficulty}) e ha totalizzato ${score} punti. 
+      Scrivi un commento brevissimo, gasante e cool in stile annunciatore di giochi arcade (in italiano).`,
     });
     return response.text;
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Keep rocking the beat!";
+    return "Continua così, spacca tutto!";
   }
 };
 
@@ -22,10 +22,10 @@ export const getSongDescription = async (song: Song) => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Write a short 20-word hype description for a rhythm game level based on the song "${song.title}". Focus on the energy and atmosphere.`,
+      contents: `Scrivi una descrizione hype di massimo 15 parole per un livello di un rhythm game basato sulla canzone "${song.title}". Focus sull'energia.`,
     });
     return response.text;
   } catch (error) {
-    return "Dive into the rhythm and feel the bass pulse through your veins.";
+    return "Senti il ritmo scorrere e colpisci i muri a tempo!";
   }
 };
