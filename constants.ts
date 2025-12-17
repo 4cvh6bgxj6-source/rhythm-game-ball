@@ -9,7 +9,8 @@ export const SONGS: Song[] = [
     bpm: 175,
     difficulty: 'Insane',
     color: '#ff0055',
-    audioUrl: 'https://cdn.pixabay.com/audio/2022/10/24/audio_9979720464.mp3' 
+    // Link diretto Pixabay per un brano ad alta energia (Hardtek/Phonk vibe)
+    audioUrl: 'https://cdn.pixabay.com/audio/2024/05/15/audio_5b30647c2a.mp3' 
   },
   {
     id: '2',
@@ -18,7 +19,8 @@ export const SONGS: Song[] = [
     bpm: 90,
     difficulty: 'Easy',
     color: '#00ccff',
-    audioUrl: 'https://cdn.pixabay.com/audio/2021/11/23/audio_0c98f828a1.mp3'
+    // Link diretto Pixabay per un brano lo-fi/emo-trap
+    audioUrl: 'https://cdn.pixabay.com/audio/2022/05/27/audio_1088734685.mp3'
   },
   {
     id: '3',
@@ -41,7 +43,7 @@ export const SONGS: Song[] = [
 ];
 
 export const HIT_WINDOWS = {
-  PERFECT: 80, // Finestra più permissiva per un feedback migliore
+  PERFECT: 80, 
   GREAT: 140,
   GOOD: 220
 };
