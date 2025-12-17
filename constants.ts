@@ -41,7 +41,7 @@ export const SONGS: Song[] = [
 ];
 
 export const HIT_WINDOWS = {
-  PERFECT: 70, // Finestra di colpo un po' più generosa per divertimento
-  GREAT: 130,
-  GOOD: 200
+  PERFECT: 80, // Finestra più permissiva per un feedback migliore
+  GREAT: 140,
+  GOOD: 220
 };

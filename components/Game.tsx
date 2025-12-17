@@ -44,20 +44,30 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const shakeAmount = useRef(0);
   const freqData = useRef<Uint8Array | null>(null);
 
+  // Audio Setup
   useEffect(() => {
-    const audio = new Audio(song.audioUrl);
+    const audio = new Audio();
+    // IMPORTANTE: crossOrigin va impostato PRIMA di src
     audio.crossOrigin = "anonymous";
+    audio.src = song.audioUrl;
     audioRef.current = audio;
 
-    const handleCanPlay = () => setIsAudioLoading(false);
-    audio.addEventListener('canplaythrough', handleCanPlay);
-    audio.addEventListener('error', (e) => {
-      console.error("Audio Load Error", e);
+    const handleCanPlay = () => {
+      console.log("Audio ready to play");
       setIsAudioLoading(false);
-    });
+    };
+    
+    const handleError = (e: any) => {
+      console.error("Audio Load Error - procedendo in modalità silenziosa", e);
+      setIsAudioLoading(false);
+    };
+
+    audio.addEventListener('canplay', handleCanPlay);
+    audio.addEventListener('error', handleError);
 
     return () => {
-      audio.removeEventListener('canplaythrough', handleCanPlay);
+      audio.removeEventListener('canplay', handleCanPlay);
+      audio.removeEventListener('error', handleError);
       audio.pause();
       audio.src = "";
       if (audioContext.current) audioContext.current.close();
@@ -65,7 +75,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     };
   }, [song.audioUrl]);
 
-  const initAudioContext = async () => {
+  const initGame = async () => {
     if (!audioRef.current) return;
     
     try {
@@ -74,7 +84,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
 
       const source = ctx.createMediaElementSource(audioRef.current);
       const node = ctx.createAnalyser();
-      node.fftSize = 256;
+      node.fftSize = 128;
       source.connect(node);
       node.connect(ctx.destination);
       analyzer.current = node;
@@ -82,7 +92,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       
       await ctx.resume();
     } catch (e) {
-      console.warn("Analyzer failed, proceeding anyway", e);
+      console.warn("AudioContext setup failed, playing without analyzer", e);
     }
     
     setIsReadyToStart(true);
@@ -110,15 +120,15 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     if (diff <= HIT_WINDOWS.PERFECT) {
       rating = 'PERFECT';
       points = 1000;
-      shakeAmount.current = 15;
+      shakeAmount.current = 20;
     } else if (diff <= HIT_WINDOWS.GREAT) {
       rating = 'GREAT';
       points = 500;
-      shakeAmount.current = 8;
+      shakeAmount.current = 10;
     } else if (diff <= HIT_WINDOWS.GOOD) {
       rating = 'GOOD';
       points = 200;
-      shakeAmount.current = 3;
+      shakeAmount.current = 5;
     }
 
     if (rating !== 'MISS') {
@@ -135,7 +145,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
             };
         });
         createParticles(
-          ballState.current.side === 'left' ? 65 : 575, 
+          ballState.current.side === 'left' ? 70 : 570, 
           ballState.current.y, 
           song.color
         );
@@ -144,7 +154,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     }
 
     setLastRating(rating);
-    setTimeout(() => setLastRating(null), 500);
+    setTimeout(() => setLastRating(null), 400);
   }, [isActive, song.color, nextBeatTime]);
 
   const update = useCallback((time: number) => {
@@ -153,6 +163,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       return;
     }
 
+    // Calcolo tempo trascorso (fallback se l'audio è bloccato)
     const audioTime = audioRef.current.currentTime * 1000;
     const elapsed = audioTime > 0 ? audioTime : (performance.now() - startTime.current);
     
@@ -164,27 +175,29 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     const timeSinceLastBeat = (elapsed - (nextBeatTime.current - beatInterval)) % beatInterval;
     const progressInBeat = Math.max(0, Math.min(1, timeSinceLastBeat / beatInterval));
     
-    const wallL = 65;
-    const wallR = 575;
+    const wallL = 70;
+    const wallR = 570;
     const distance = wallR - wallL;
 
+    // Movimento lineare della pallina
     if (ballState.current.side === 'right') {
       ballState.current.x = wallL + (progressInBeat * distance);
     } else {
       ballState.current.x = wallR - (progressInBeat * distance);
     }
 
-    const jumpHeight = 160;
+    // Movimento a parabola (salto)
+    const jumpHeight = 180;
     ballState.current.y = 250 - (Math.sin(progressInBeat * Math.PI) * jumpHeight);
 
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        let avgFreq = 0;
+        let visualModifier = 0;
         if (analyzer.current && freqData.current) {
           analyzer.current.getByteFrequencyData(freqData.current);
-          avgFreq = freqData.current.reduce((a, b) => a + b, 0) / freqData.current.length;
+          visualModifier = (freqData.current[2] / 255) * 50;
         }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -195,44 +208,47 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
           shakeAmount.current *= 0.9;
         }
 
-        // Walls
-        ctx.lineWidth = 15;
+        // Pareti
+        ctx.lineWidth = 20;
         ctx.lineCap = 'round';
-        ctx.shadowBlur = 0;
-
-        // Left
-        ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#111';
-        if (ballState.current.side === 'left') { ctx.shadowBlur = 20; ctx.shadowColor = song.color; }
-        ctx.beginPath(); ctx.moveTo(wallL, 80); ctx.lineTo(wallL, 420); ctx.stroke();
         
-        // Right
+        // Muro Sinistro
+        ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#111';
+        ctx.shadowBlur = ballState.current.side === 'left' ? 30 : 0;
+        ctx.shadowColor = song.color;
+        ctx.beginPath(); ctx.moveTo(wallL, 100); ctx.lineTo(wallL, 400); ctx.stroke();
+        
+        // Muro Destro
         ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#111';
-        if (ballState.current.side === 'right') { ctx.shadowBlur = 20; ctx.shadowColor = song.color; }
-        ctx.beginPath(); ctx.moveTo(wallR, 80); ctx.lineTo(wallR, 420); ctx.stroke();
+        ctx.shadowBlur = ballState.current.side === 'right' ? 30 : 0;
+        ctx.beginPath(); ctx.moveTo(wallR, 100); ctx.lineTo(wallR, 400); ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Particles
+        // Particelle
         particles.current = particles.current.filter(p => p.life > 0);
         particles.current.forEach(p => {
           ctx.globalAlpha = p.life;
           ctx.fillStyle = p.color;
-          ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
-          p.x += p.vx; p.y += p.vy; p.life -= 0.025;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+          p.x += p.vx; p.y += p.vy; p.life -= 0.03;
         });
         ctx.globalAlpha = 1.0;
 
-        // THE BALL
+        // LA PALLINA (Sempre renderizzata)
         ctx.fillStyle = song.color;
-        ctx.shadowBlur = 40 + (avgFreq / 4);
+        ctx.shadowBlur = 50 + visualModifier;
         ctx.shadowColor = song.color;
         ctx.beginPath();
-        ctx.arc(ballState.current.x, ballState.current.y, 22 + (avgFreq / 30), 0, Math.PI * 2);
+        ctx.arc(ballState.current.x, ballState.current.y, 25 + (visualModifier / 5), 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 3;
-        ctx.stroke();
+        
+        // Nucleo Pallina per visibilità massima
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.arc(ballState.current.x, ballState.current.y, 12, 0, Math.PI * 2);
+        ctx.fill();
+        
         ctx.shadowBlur = 0;
-
         ctx.restore();
       }
     }
@@ -241,7 +257,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     const p = (audioRef.current.currentTime / dur) * 100;
     setProgress(p);
 
-    if (audioRef.current.ended || (p >= 100 && audioTime > 5000)) {
+    if (audioRef.current.ended || (p >= 100 && audioTime > 2000)) {
       setIsActive(false);
       onFinish(score);
     } else {
@@ -258,7 +274,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     } else {
       setIsActive(true);
       if (audioRef.current) {
-        audioRef.current.play().catch(e => console.warn("Autoplay blocked", e));
+        audioRef.current.play().catch(() => console.warn("Audio blocked by browser policy"));
         startTime.current = performance.now();
         nextBeatTime.current = beatInterval;
         requestRef.current = requestAnimationFrame(update);
@@ -284,49 +300,49 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     >
       {!isReadyToStart && (
         <div className="absolute inset-0 z-[100] bg-zinc-950 flex flex-col items-center justify-center p-12 text-center">
-            <div className="w-32 h-32 rounded-3xl flex items-center justify-center mb-8 rotate-3 shadow-2xl" style={{ backgroundColor: song.color }}>
-                {isAudioLoading ? <Loader2 className="w-12 h-12 text-black animate-spin" /> : <Music className="w-12 h-12 text-black" />}
+            <div className="w-40 h-40 rounded-full flex items-center justify-center mb-8 shadow-2xl animate-pulse" style={{ backgroundColor: song.color }}>
+                {isAudioLoading ? <Loader2 className="w-16 h-16 text-black animate-spin" /> : <Play fill="black" className="w-16 h-16 text-black" />}
             </div>
-            <h2 className="text-5xl font-orbitron font-black text-white mb-4 tracking-tighter">{song.title}</h2>
-            <p className="text-zinc-500 mb-12 max-w-sm uppercase tracking-[0.2em] font-bold text-xs">Sincronizzazione audio necessaria</p>
+            <h2 className="text-6xl font-orbitron font-black text-white mb-4 tracking-tighter">{song.title}</h2>
+            <p className="text-zinc-500 mb-12 uppercase tracking-[0.4em] font-bold text-sm">Pronto all'impatto</p>
             
             <button 
-                onClick={initAudioContext}
+                onClick={initGame}
                 disabled={isAudioLoading}
-                className="px-16 py-6 bg-white text-black font-orbitron font-black text-3xl rounded-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-4 disabled:opacity-20 group"
+                className="px-20 py-8 bg-white text-black font-orbitron font-black text-4xl rounded-3xl hover:scale-105 active:scale-95 transition-all flex items-center gap-6 disabled:opacity-20 shadow-[0_0_50px_rgba(255,255,255,0.3)]"
             >
-                {isAudioLoading ? "CARICAMENTO..." : <><Play fill="currentColor" className="w-8 h-8 group-hover:translate-x-1 transition-transform" /> START</>}
+                {isAudioLoading ? "CARICAMENTO..." : "GIOCA"}
             </button>
         </div>
       )}
 
-      <div className="absolute top-0 w-full p-8 flex justify-between items-start pointer-events-none z-20">
+      <div className="absolute top-0 w-full p-10 flex justify-between items-start pointer-events-none z-20">
         <button 
           onClick={(e) => { e.stopPropagation(); onBack(); }}
-          className="pointer-events-auto flex items-center gap-2 text-zinc-700 hover:text-white transition-all font-orbitron text-[10px] tracking-[0.4em] group"
+          className="pointer-events-auto flex items-center gap-3 text-zinc-600 hover:text-white transition-all font-orbitron text-xs tracking-[0.5em] group"
         >
-          <div className="w-8 h-8 rounded-full border border-zinc-800 flex items-center justify-center group-hover:border-white">
-            <ChevronLeft className="w-4 h-4" />
+          <div className="w-10 h-10 rounded-full border border-zinc-800 flex items-center justify-center group-hover:border-white">
+            <ChevronLeft className="w-6 h-6" />
           </div>
-          MENU
+          EXIT
         </button>
 
         <div className="flex flex-col items-end">
-          <div className="text-7xl font-orbitron font-black text-white tabular-nums tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+          <div className="text-8xl font-orbitron font-black text-white tabular-nums tracking-tighter drop-shadow-2xl">
             {Math.floor(score.totalScore).toLocaleString()}
           </div>
-          <div className="text-zinc-600 font-bold text-[10px] tracking-[0.5em] mt-1 uppercase" style={{ color: song.color }}>BEAT SCORE</div>
+          <div className="text-zinc-600 font-bold text-xs tracking-[0.6em] mt-2 uppercase" style={{ color: song.color }}>SCORE</div>
         </div>
       </div>
 
-      <div className="absolute top-0 left-0 w-full h-2 bg-zinc-900">
+      <div className="absolute top-0 left-0 w-full h-3 bg-zinc-900">
         <div 
-          className="h-full transition-all duration-300 shadow-[0_0_20px_white]"
+          className="h-full transition-all duration-300 shadow-[0_0_30px_white]"
           style={{ width: `${progress}%`, backgroundColor: song.color }}
         />
       </div>
 
-      <div className="relative w-full max-w-5xl aspect-video flex items-center justify-center">
+      <div className="relative w-full max-w-6xl aspect-video flex items-center justify-center">
         <canvas 
           ref={canvasRef} 
           width={640} 
@@ -337,10 +353,10 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         {lastRating && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
             <div 
-              className={`text-[12rem] font-orbitron font-black italic transform transition-all duration-150 scale-110 drop-shadow-2xl ${
+              className={`text-[15rem] font-orbitron font-black italic transform transition-all duration-100 scale-110 drop-shadow-2xl ${
                 lastRating === 'PERFECT' ? 'text-yellow-400' :
                 lastRating === 'GREAT' ? 'text-cyan-400' :
-                lastRating === 'GOOD' ? 'text-green-400' : 'text-red-500'
+                lastRating === 'GOOD' ? 'text-green-400' : 'text-red-600'
               }`}
             >
               {lastRating}
@@ -349,35 +365,35 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         )}
 
         {score.combo > 1 && (
-          <div className="absolute bottom-10 w-full text-center z-20">
+          <div className="absolute bottom-5 w-full text-center z-20">
             <div className="inline-flex flex-col items-center">
-              <span className="text-[10rem] font-orbitron text-white font-black tracking-tighter leading-none animate-bounce" style={{ color: song.color }}>
+              <span className="text-[12rem] font-orbitron text-white font-black tracking-tighter leading-none animate-bounce" style={{ color: song.color, textShadow: `0 0 40px ${song.color}` }}>
                 {score.combo}
               </span>
-              <span className="text-xl font-orbitron text-white/50 tracking-[1em] -mt-4">COMBO</span>
+              <span className="text-2xl font-orbitron text-white/40 tracking-[1.2em] -mt-6">STREAK</span>
             </div>
           </div>
         )}
       </div>
 
       {isReadyToStart && countdown > 0 && (
-        <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center">
-          <div className="text-[25rem] font-orbitron font-black text-white leading-none animate-pulse">
+        <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center text-white">
+          <div className="text-[30rem] font-orbitron font-black animate-ping">
             {countdown}
           </div>
         </div>
       )}
 
-      <div className="absolute bottom-12 flex flex-col items-center gap-2">
-        <div className="px-10 py-4 rounded-3xl bg-zinc-900/80 border border-zinc-800 backdrop-blur-xl text-xs font-orbitron text-zinc-400 tracking-[0.4em] uppercase flex items-center gap-6">
-          <div className="flex items-center gap-3">
-             <span className="text-black bg-white px-3 py-1 rounded-lg font-black">SPACE</span>
+      <div className="absolute bottom-16 flex flex-col items-center gap-4">
+        <div className="px-12 py-5 rounded-full bg-zinc-900/90 border-2 border-zinc-800 backdrop-blur-2xl text-sm font-orbitron text-zinc-400 tracking-[0.5em] uppercase flex items-center gap-10 shadow-2xl">
+          <div className="flex items-center gap-4">
+             <span className="text-black bg-white px-4 py-1.5 rounded-xl font-black text-xl">SPACE</span>
              <span>BOUNCE</span>
           </div>
-          <div className="w-2 h-2 rounded-full bg-zinc-700" />
-          <div className="flex items-center gap-3 text-white">
-             <Zap className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-             <span>SYNC THE BALL</span>
+          <div className="w-3 h-3 rounded-full bg-zinc-700" />
+          <div className="flex items-center gap-4 text-white">
+             <Zap className="w-6 h-6 text-yellow-500 fill-yellow-500" />
+             <span>HIT THE BEAT</span>
           </div>
         </div>
       </div>
