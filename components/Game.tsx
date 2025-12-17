@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Song, ScoreData } from '../types.ts';
 import { HIT_WINDOWS } from '../constants.ts';
-import { ChevronLeft, Volume2, Target, Zap } from 'lucide-react';
+import { ChevronLeft, Volume2, Zap, Music } from 'lucide-react';
 
 interface Particle {
   x: number;
@@ -27,9 +27,12 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const [progress, setProgress] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [countdown, setCountdown] = useState(3);
+  const [isAudioLoading, setIsAudioLoading] = useState(true);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContext = useRef<AudioContext | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const analyzer = useRef<AnalyserNode | null>(null);
   const requestRef = useRef<number>(0);
   const startTime = useRef<number>(0);
   const nextBeatTime = useRef<number>(0);
@@ -39,13 +42,37 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const lastTapTime = useRef<number>(0);
   const particles = useRef<Particle[]>([]);
   const shakeAmount = useRef(0);
+  const freqData = useRef<Uint8Array | null>(null);
 
+  // Initialize Audio and Media Elements
   useEffect(() => {
-    audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    return () => {
-      audioContext.current?.close();
+    const audio = new Audio(song.audioUrl);
+    audio.crossOrigin = "anonymous";
+    audioRef.current = audio;
+
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioContext.current = ctx;
+
+    const source = ctx.createMediaElementSource(audio);
+    const node = ctx.createAnalyser();
+    node.fftSize = 256;
+    source.connect(node);
+    node.connect(ctx.destination);
+    analyzer.current = node;
+    freqData.current = new Uint8Array(node.frequencyBinCount);
+
+    audio.oncanplaythrough = () => setIsAudioLoading(false);
+    audio.onerror = () => {
+      console.error("Errore caricamento audio");
+      setIsAudioLoading(false);
     };
-  }, []);
+
+    return () => {
+      audio.pause();
+      audio.src = "";
+      ctx.close();
+    };
+  }, [song.audioUrl]);
 
   const createParticles = (x: number, y: number, color: string) => {
     for (let i = 0; i < 15; i++) {
@@ -59,20 +86,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       });
     }
   };
-
-  const playBeatSound = useCallback((freq: number = 440, type: OscillatorType = 'sine', vol: number = 0.1) => {
-    if (!audioContext.current) return;
-    const osc = audioContext.current.createOscillator();
-    const gain = audioContext.current.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, audioContext.current.currentTime);
-    gain.gain.setValueAtTime(vol, audioContext.current.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.current.currentTime + 0.1);
-    osc.connect(gain);
-    gain.connect(audioContext.current.destination);
-    osc.start();
-    osc.stop(audioContext.current.currentTime + 0.1);
-  }, []);
 
   const handleHit = useCallback((timestamp: number) => {
     if (!isActive) return;
@@ -107,7 +120,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
                 totalScore: prev.totalScore + (points * (1 + newCombo * 0.1))
             };
         });
-        playBeatSound(880, 'square', 0.15);
         createParticles(
           ballState.current.side === 'left' ? 60 : 580, 
           ballState.current.y, 
@@ -115,18 +127,23 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         );
     } else {
         setScore(prev => ({ ...prev, miss: prev.miss + 1, combo: 0 }));
-        playBeatSound(110, 'sawtooth', 0.05);
     }
 
     setLastRating(rating);
     setTimeout(() => setLastRating(null), 500);
-  }, [isActive, playBeatSound, song.color, nextBeatTime, beatInterval]);
+  }, [isActive, song.color, nextBeatTime]);
 
   const update = useCallback((time: number) => {
-    if (!startTime.current) startTime.current = time;
-    const elapsed = time - startTime.current;
+    if (!audioRef.current || !startTime.current) {
+        requestRef.current = requestAnimationFrame(update);
+        return;
+    }
+
+    // Sync current time with audio element for maximum precision
+    const elapsed = audioRef.current.currentTime * 1000;
     
-    if (time > nextBeatTime.current + HIT_WINDOWS.GOOD) {
+    // Beat management
+    if (elapsed > nextBeatTime.current + HIT_WINDOWS.GOOD) {
       if (lastTapTime.current < nextBeatTime.current - HIT_WINDOWS.GOOD) {
         setScore(prev => ({ ...prev, miss: prev.miss + 1, combo: 0 }));
         setLastRating('MISS');
@@ -134,10 +151,9 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       }
       nextBeatTime.current += beatInterval;
       ballState.current.side = ballState.current.side === 'left' ? 'right' : 'left';
-      playBeatSound(220, 'sine', 0.05);
     }
 
-    const timeSinceLastBeat = (time - (nextBeatTime.current - beatInterval)) % beatInterval;
+    const timeSinceLastBeat = (elapsed - (nextBeatTime.current - beatInterval)) % beatInterval;
     const progressInBeat = timeSinceLastBeat / beatInterval;
     
     const wallLeft = 60;
@@ -156,7 +172,10 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
-      if (ctx) {
+      if (ctx && analyzer.current && freqData.current) {
+        analyzer.current.getByteFrequencyData(freqData.current);
+        const avgFreq = freqData.current.reduce((a, b) => a + b, 0) / freqData.current.length;
+        
         ctx.save();
         if (shakeAmount.current > 0) {
           ctx.translate((Math.random() - 0.5) * shakeAmount.current, (Math.random() - 0.5) * shakeAmount.current);
@@ -165,19 +184,32 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        ctx.lineWidth = 12;
+        // Draw Audio Visualizer in Background
+        ctx.globalAlpha = 0.2;
+        const barWidth = canvas.width / freqData.current.length;
+        for (let i = 0; i < freqData.current.length; i++) {
+          const val = freqData.current[i];
+          ctx.fillStyle = song.color;
+          ctx.fillRect(i * barWidth, canvas.height, barWidth - 1, -val * 1.5);
+        }
+        ctx.globalAlpha = 1.0;
+
+        ctx.lineWidth = 12 + (avgFreq / 50);
         ctx.lineCap = 'round';
         
+        // Left Wall
         ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#1a1a1a';
-        ctx.shadowBlur = ballState.current.side === 'left' ? 30 : 0;
+        ctx.shadowBlur = ballState.current.side === 'left' ? 30 + (avgFreq / 10) : 0;
         ctx.shadowColor = song.color;
         ctx.beginPath(); ctx.moveTo(wallLeft - 15, 80); ctx.lineTo(wallLeft - 15, 420); ctx.stroke();
         
+        // Right Wall
         ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#1a1a1a';
-        ctx.shadowBlur = ballState.current.side === 'right' ? 30 : 0;
+        ctx.shadowBlur = ballState.current.side === 'right' ? 30 + (avgFreq / 10) : 0;
         ctx.beginPath(); ctx.moveTo(wallRight + 15, 80); ctx.lineTo(wallRight + 15, 420); ctx.stroke();
         ctx.shadowBlur = 0;
 
+        // Particles
         particles.current = particles.current.filter(p => p.life > 0);
         particles.current.forEach(p => {
           ctx.globalAlpha = p.life;
@@ -191,17 +223,12 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         });
         ctx.globalAlpha = 1.0;
 
-        ctx.fillStyle = `${song.color}44`;
-        const trailOffset = ballState.current.side === 'right' ? -15 : 15;
-        ctx.beginPath();
-        ctx.arc(ballState.current.x + trailOffset, ballState.current.y + 5, 12, 0, Math.PI * 2);
-        ctx.fill();
-
+        // Ball
         ctx.fillStyle = song.color;
-        ctx.shadowBlur = 35;
+        ctx.shadowBlur = 35 + (avgFreq / 5);
         ctx.shadowColor = song.color;
         ctx.beginPath();
-        ctx.arc(ballState.current.x, ballState.current.y, 18, 0, Math.PI * 2);
+        ctx.arc(ballState.current.x, ballState.current.y, 18 + (avgFreq / 40), 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
 
@@ -209,37 +236,42 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       }
     }
 
-    const totalDuration = 45000; 
-    const p = Math.min((elapsed / totalDuration) * 100, 100);
+    const p = (audioRef.current.currentTime / audioRef.current.duration) * 100;
     setProgress(p);
 
-    if (p >= 100) {
+    if (audioRef.current.ended || p >= 100) {
       setIsActive(false);
       onFinish(score);
     } else {
       requestRef.current = requestAnimationFrame(update);
     }
-  }, [beatInterval, onFinish, playBeatSound, score, song.color]);
+  }, [beatInterval, onFinish, score, song.color]);
 
   useEffect(() => {
+    if (isAudioLoading) return;
+
     if (countdown > 0) {
       const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
       return () => clearTimeout(timer);
     } else {
       setIsActive(true);
-      startTime.current = performance.now();
-      nextBeatTime.current = startTime.current + beatInterval;
-      ballState.current.side = 'right'; 
-      requestRef.current = requestAnimationFrame(update);
+      if (audioRef.current) {
+        audioRef.current.play();
+        startTime.current = performance.now();
+        nextBeatTime.current = beatInterval; // First beat at one interval
+        ballState.current.side = 'right'; 
+        requestRef.current = requestAnimationFrame(update);
+      }
     }
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [countdown, beatInterval, update]);
+  }, [countdown, beatInterval, update, isAudioLoading]);
 
   const handleInput = (e: React.MouseEvent | React.KeyboardEvent) => {
+    if (isAudioLoading) return;
     if (e.type === 'keydown' && (e as React.KeyboardEvent).code !== 'Space') return;
-    const now = performance.now();
+    const now = audioRef.current ? audioRef.current.currentTime * 1000 : performance.now();
     lastTapTime.current = now;
     handleHit(now);
   };
@@ -251,6 +283,14 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       tabIndex={0}
       onKeyDown={handleInput}
     >
+      {/* Loading Overlay */}
+      {isAudioLoading && (
+        <div className="absolute inset-0 z-[60] bg-black flex flex-col items-center justify-center">
+            <Music className="w-12 h-12 text-white animate-bounce mb-4" />
+            <div className="text-zinc-500 font-orbitron text-xs tracking-[0.3em] uppercase">Loading Audio Stream...</div>
+        </div>
+      )}
+
       <div className="absolute top-0 w-full p-8 flex justify-between items-start pointer-events-none z-20">
         <button 
           onClick={(e) => { e.stopPropagation(); onBack(); }}
@@ -279,14 +319,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
           style={{ width: `${progress}%`, backgroundColor: song.color }}
         >
           <div className="absolute right-0 top-0 h-full w-4 bg-white blur-sm" />
-        </div>
-      </div>
-
-      <div className="absolute inset-0 pointer-events-none opacity-10">
-        <div className="grid grid-cols-12 h-full w-full">
-           {[...Array(12)].map((_, i) => (
-             <div key={i} className="border-r border-zinc-800 h-full" />
-           ))}
         </div>
       </div>
 
@@ -324,7 +356,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         )}
       </div>
 
-      {countdown > 0 && (
+      {!isAudioLoading && countdown > 0 && (
         <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center">
           <div className="text-zinc-700 font-orbitron mb-8 tracking-[1em] text-xs uppercase animate-pulse">Initializing neural link</div>
           <div className="text-[12rem] font-orbitron font-black text-white leading-none">

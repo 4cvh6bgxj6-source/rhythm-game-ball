@@ -12,6 +12,7 @@ export interface Song {
   bpm: number;
   difficulty: 'Easy' | 'Medium' | 'Hard' | 'Insane';
   color: string;
+  audioUrl: string;
 }
 
 export interface ScoreData {
