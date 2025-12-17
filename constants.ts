@@ -4,26 +4,26 @@ import { Song } from './types.ts';
 export const SONGS: Song[] = [
   {
     id: '1',
-    title: 'Hardcore Beat',
-    artist: 'Techno Master',
-    bpm: 170,
+    title: 'Hardcore Rave',
+    artist: 'Helix Master',
+    bpm: 160,
     difficulty: 'Insane',
     color: '#ff0055',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' 
   },
   {
     id: '2',
-    title: 'Nuts (Chill Vibe)',
-    artist: 'Lofi Beats',
-    bpm: 95,
+    title: 'Chill Vibes',
+    artist: 'Lofi Dreams',
+    bpm: 90,
     difficulty: 'Easy',
     color: '#00ccff',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3'
   },
   {
     id: '3',
-    title: 'All I Need',
-    artist: 'Future Bassist',
+    title: 'Digital Pulse',
+    artist: 'Cyber Synth',
     bpm: 128,
     difficulty: 'Medium',
     color: '#99ff00',
@@ -31,9 +31,9 @@ export const SONGS: Song[] = [
   },
   {
     id: '4',
-    title: 'Fast Jazz',
-    artist: 'Swing King',
-    bpm: 110,
+    title: 'Neo Swing',
+    artist: 'Jazz Hop',
+    bpm: 115,
     difficulty: 'Hard',
     color: '#ffaa00',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3'
@@ -42,6 +42,6 @@ export const SONGS: Song[] = [
 
 export const HIT_WINDOWS = {
   PERFECT: 90, 
-  GREAT: 150,
+  GREAT: 160,
   GOOD: 250
 };
