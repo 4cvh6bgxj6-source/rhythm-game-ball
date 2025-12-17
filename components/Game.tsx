@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Song, ScoreData } from '../types.ts';
 import { HIT_WINDOWS } from '../constants.ts';
-import { ChevronLeft, Volume2, Zap, Music } from 'lucide-react';
+import { ChevronLeft, Zap, Music, Play } from 'lucide-react';
 
 interface Particle {
   x: number;
@@ -26,6 +26,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const [lastRating, setLastRating] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [isActive, setIsActive] = useState(false);
+  const [isReadyToStart, setIsReadyToStart] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [isAudioLoading, setIsAudioLoading] = useState(true);
   
@@ -44,35 +45,46 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const shakeAmount = useRef(0);
   const freqData = useRef<Uint8Array | null>(null);
 
-  // Initialize Audio and Media Elements
+  // Initialize Audio
   useEffect(() => {
     const audio = new Audio(song.audioUrl);
     audio.crossOrigin = "anonymous";
     audioRef.current = audio;
 
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    audioContext.current = ctx;
-
-    const source = ctx.createMediaElementSource(audio);
-    const node = ctx.createAnalyser();
-    node.fftSize = 256;
-    source.connect(node);
-    node.connect(ctx.destination);
-    analyzer.current = node;
-    freqData.current = new Uint8Array(node.frequencyBinCount);
-
     audio.oncanplaythrough = () => setIsAudioLoading(false);
     audio.onerror = () => {
       console.error("Errore caricamento audio");
-      setIsAudioLoading(false);
+      setIsAudioLoading(false); // Prova a giocare comunque
     };
 
     return () => {
       audio.pause();
       audio.src = "";
-      ctx.close();
+      if (audioContext.current) audioContext.current.close();
     };
   }, [song.audioUrl]);
+
+  const initAudioContext = async () => {
+    if (!audioRef.current) return;
+    
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioContext.current = ctx;
+
+    try {
+      const source = ctx.createMediaElementSource(audioRef.current);
+      const node = ctx.createAnalyser();
+      node.fftSize = 256;
+      source.connect(node);
+      node.connect(ctx.destination);
+      analyzer.current = node;
+      freqData.current = new Uint8Array(node.frequencyBinCount);
+    } catch (e) {
+      console.warn("Analyzer failed, proceeding without visualizer", e);
+    }
+    
+    await ctx.resume();
+    setIsReadyToStart(true);
+  };
 
   const createParticles = (x: number, y: number, color: string) => {
     for (let i = 0; i < 15; i++) {
@@ -139,10 +151,10 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         return;
     }
 
-    // Sync current time with audio element for maximum precision
+    // Tempo corrente basato sull'audio
     const elapsed = audioRef.current.currentTime * 1000;
     
-    // Beat management
+    // Logica dei Beat
     if (elapsed > nextBeatTime.current + HIT_WINDOWS.GOOD) {
       if (lastTapTime.current < nextBeatTime.current - HIT_WINDOWS.GOOD) {
         setScore(prev => ({ ...prev, miss: prev.miss + 1, combo: 0 }));
@@ -154,7 +166,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     }
 
     const timeSinceLastBeat = (elapsed - (nextBeatTime.current - beatInterval)) % beatInterval;
-    const progressInBeat = timeSinceLastBeat / beatInterval;
+    const progressInBeat = Math.max(0, Math.min(1, timeSinceLastBeat / beatInterval));
     
     const wallLeft = 60;
     const wallRight = 580;
@@ -172,10 +184,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
-      if (ctx && analyzer.current && freqData.current) {
-        analyzer.current.getByteFrequencyData(freqData.current);
-        const avgFreq = freqData.current.reduce((a, b) => a + b, 0) / freqData.current.length;
-        
+      if (ctx) {
         ctx.save();
         if (shakeAmount.current > 0) {
           ctx.translate((Math.random() - 0.5) * shakeAmount.current, (Math.random() - 0.5) * shakeAmount.current);
@@ -184,26 +193,31 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Draw Audio Visualizer in Background
-        ctx.globalAlpha = 0.2;
-        const barWidth = canvas.width / freqData.current.length;
-        for (let i = 0; i < freqData.current.length; i++) {
-          const val = freqData.current[i];
-          ctx.fillStyle = song.color;
-          ctx.fillRect(i * barWidth, canvas.height, barWidth - 1, -val * 1.5);
+        let avgFreq = 0;
+        if (analyzer.current && freqData.current) {
+          analyzer.current.getByteFrequencyData(freqData.current);
+          avgFreq = freqData.current.reduce((a, b) => a + b, 0) / freqData.current.length;
+          
+          // Visualizer Background
+          ctx.globalAlpha = 0.2;
+          const barWidth = canvas.width / freqData.current.length;
+          for (let i = 0; i < freqData.current.length; i++) {
+            const val = freqData.current[i];
+            ctx.fillStyle = song.color;
+            ctx.fillRect(i * barWidth, canvas.height, barWidth - 1, -val * 1.5);
+          }
+          ctx.globalAlpha = 1.0;
         }
-        ctx.globalAlpha = 1.0;
 
         ctx.lineWidth = 12 + (avgFreq / 50);
         ctx.lineCap = 'round';
         
-        // Left Wall
+        // Walls
         ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#1a1a1a';
         ctx.shadowBlur = ballState.current.side === 'left' ? 30 + (avgFreq / 10) : 0;
         ctx.shadowColor = song.color;
         ctx.beginPath(); ctx.moveTo(wallLeft - 15, 80); ctx.lineTo(wallLeft - 15, 420); ctx.stroke();
         
-        // Right Wall
         ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#1a1a1a';
         ctx.shadowBlur = ballState.current.side === 'right' ? 30 + (avgFreq / 10) : 0;
         ctx.beginPath(); ctx.moveTo(wallRight + 15, 80); ctx.lineTo(wallRight + 15, 420); ctx.stroke();
@@ -223,7 +237,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         });
         ctx.globalAlpha = 1.0;
 
-        // Ball
+        // THE BALL (Always Rendered)
         ctx.fillStyle = song.color;
         ctx.shadowBlur = 35 + (avgFreq / 5);
         ctx.shadowColor = song.color;
@@ -236,10 +250,11 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       }
     }
 
-    const p = (audioRef.current.currentTime / audioRef.current.duration) * 100;
+    const duration = audioRef.current.duration || 1;
+    const p = (audioRef.current.currentTime / duration) * 100;
     setProgress(p);
 
-    if (audioRef.current.ended || p >= 100) {
+    if (audioRef.current.ended || (p >= 100 && audioRef.current.duration > 0)) {
       setIsActive(false);
       onFinish(score);
     } else {
@@ -248,7 +263,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   }, [beatInterval, onFinish, score, song.color]);
 
   useEffect(() => {
-    if (isAudioLoading) return;
+    if (!isReadyToStart) return;
 
     if (countdown > 0) {
       const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
@@ -256,9 +271,9 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     } else {
       setIsActive(true);
       if (audioRef.current) {
-        audioRef.current.play();
+        audioRef.current.play().catch(e => console.error("Autoplay blocked", e));
         startTime.current = performance.now();
-        nextBeatTime.current = beatInterval; // First beat at one interval
+        nextBeatTime.current = beatInterval;
         ballState.current.side = 'right'; 
         requestRef.current = requestAnimationFrame(update);
       }
@@ -266,10 +281,10 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [countdown, beatInterval, update, isAudioLoading]);
+  }, [countdown, beatInterval, update, isReadyToStart]);
 
   const handleInput = (e: React.MouseEvent | React.KeyboardEvent) => {
-    if (isAudioLoading) return;
+    if (!isActive) return;
     if (e.type === 'keydown' && (e as React.KeyboardEvent).code !== 'Space') return;
     const now = audioRef.current ? audioRef.current.currentTime * 1000 : performance.now();
     lastTapTime.current = now;
@@ -283,11 +298,21 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       tabIndex={0}
       onKeyDown={handleInput}
     >
-      {/* Loading Overlay */}
-      {isAudioLoading && (
-        <div className="absolute inset-0 z-[60] bg-black flex flex-col items-center justify-center">
-            <Music className="w-12 h-12 text-white animate-bounce mb-4" />
-            <div className="text-zinc-500 font-orbitron text-xs tracking-[0.3em] uppercase">Loading Audio Stream...</div>
+      {/* Initial Interaction Screen */}
+      {!isReadyToStart && (
+        <div className="absolute inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-24 h-24 rounded-full flex items-center justify-center mb-8 animate-pulse" style={{ backgroundColor: song.color }}>
+                <Music className="w-10 h-10 text-black" />
+            </div>
+            <h2 className="text-3xl font-orbitron font-bold text-white mb-4">{song.title}</h2>
+            <p className="text-zinc-400 max-w-md mb-8">L'audio deve essere attivato manualmente per iniziare la sincronizzazione.</p>
+            <button 
+                onClick={initAudioContext}
+                disabled={isAudioLoading}
+                className="px-12 py-4 bg-white text-black font-orbitron font-black text-xl rounded-full hover:scale-110 transition-transform flex items-center gap-3 disabled:opacity-50"
+            >
+                {isAudioLoading ? "CARICAMENTO..." : <><Play fill="currentColor" /> INIZIA</>}
+            </button>
         </div>
       )}
 
@@ -356,7 +381,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         )}
       </div>
 
-      {!isAudioLoading && countdown > 0 && (
+      {isReadyToStart && countdown > 0 && (
         <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center">
           <div className="text-zinc-700 font-orbitron mb-8 tracking-[1em] text-xs uppercase animate-pulse">Initializing neural link</div>
           <div className="text-[12rem] font-orbitron font-black text-white leading-none">
