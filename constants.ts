@@ -4,44 +4,44 @@ import { Song } from './types.ts';
 export const SONGS: Song[] = [
   {
     id: '1',
-    title: 'Hardcore Rave',
-    artist: 'Helix Master',
-    bpm: 160,
-    difficulty: 'Insane',
+    title: 'Phonk Night',
+    artist: 'Street Racer',
+    bpm: 120, // Sincronizzato con il loop audio
+    difficulty: 'Medium',
     color: '#ff0055',
-    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' 
+    audioUrl: 'https://cdn.pixabay.com/audio/2022/11/22/audio_feb6bd9202.mp3' 
   },
   {
     id: '2',
-    title: 'Chill Vibes',
-    artist: 'Lofi Dreams',
-    bpm: 90,
+    title: 'Lofi Dreams',
+    artist: 'Chill Cat',
+    bpm: 80,
     difficulty: 'Easy',
     color: '#00ccff',
-    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3'
+    audioUrl: 'https://cdn.pixabay.com/audio/2022/05/17/audio_8213798991.mp3'
   },
   {
     id: '3',
-    title: 'Digital Pulse',
-    artist: 'Cyber Synth',
-    bpm: 128,
-    difficulty: 'Medium',
+    title: 'Cyberpunk Drive',
+    artist: 'Future Synth',
+    bpm: 100,
+    difficulty: 'Hard',
     color: '#99ff00',
-    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3'
+    audioUrl: 'https://cdn.pixabay.com/audio/2022/01/21/audio_3174268798.mp3'
   },
   {
     id: '4',
-    title: 'Neo Swing',
-    artist: 'Jazz Hop',
-    bpm: 115,
-    difficulty: 'Hard',
+    title: 'Arcade Rush',
+    artist: '8-Bit Hero',
+    bpm: 140,
+    difficulty: 'Insane',
     color: '#ffaa00',
-    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3'
+    audioUrl: 'https://cdn.pixabay.com/audio/2021/11/24/audio_98553259b1.mp3'
   }
 ];
 
 export const HIT_WINDOWS = {
-  PERFECT: 90, 
-  GREAT: 160,
-  GOOD: 250
+  PERFECT: 100, 
+  GREAT: 180,
+  GOOD: 280
 };

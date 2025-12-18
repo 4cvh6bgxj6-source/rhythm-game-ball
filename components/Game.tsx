@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Song, ScoreData } from '../types.ts';
 import { HIT_WINDOWS } from '../constants.ts';
-import { ChevronLeft, Zap, Music, Play, Loader2, AlertCircle } from 'lucide-react';
+import { ChevronLeft, Zap, Play, Loader2, AlertCircle } from 'lucide-react';
 
 interface Particle {
   x: number;
@@ -36,7 +36,6 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const analyzer = useRef<AnalyserNode | null>(null);
   const requestRef = useRef<number>(0);
-  const startTime = useRef<number>(0);
   const nextBeatTime = useRef<number>(0);
   const beatInterval = (60 / song.bpm) * 1000;
   
@@ -45,23 +44,23 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const shakeAmount = useRef(0);
   const freqData = useRef<Uint8Array | null>(null);
 
-  // Audio Setup con HTMLAudioElement (più compatibile di fetch)
+  // Audio Setup
   useEffect(() => {
     const audio = new Audio();
+    // Importante: settiamo crossOrigin per provare a usare l'analizzatore,
+    // ma gestiamo il fallimento se il server non lo supporta.
     audio.crossOrigin = "anonymous";
     audio.src = song.audioUrl;
     audio.preload = "auto";
     audioRef.current = audio;
 
     const handleCanPlay = () => {
-      console.log("Audio can play");
       setIsAudioLoading(false);
       setAudioError(false);
     };
 
-    const handleError = (e: any) => {
-      console.error("Audio failed to load", e);
-      // Fallback: permetti di giocare anche se l'audio fallisce (modalità silente)
+    const handleError = () => {
+      console.warn("Audio loading issue, attempting to proceed anyway.");
       setIsAudioLoading(false);
       setAudioError(true);
     };
@@ -69,15 +68,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     audio.addEventListener('canplaythrough', handleCanPlay);
     audio.addEventListener('error', handleError);
 
-    // Timeout di sicurezza per il caricamento
-    const loadTimeout = setTimeout(() => {
-      if (isAudioLoading) {
-        setIsAudioLoading(false);
-      }
-    }, 8000);
-
     return () => {
-      clearTimeout(loadTimeout);
       audio.removeEventListener('canplaythrough', handleCanPlay);
       audio.removeEventListener('error', handleError);
       audio.pause();
@@ -90,12 +81,12 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const startSequence = async () => {
     if (!audioRef.current) return;
     
-    // Inizializza l'AudioContext dopo il gesto dell'utente
+    // Inizializzazione sicura dell'AudioContext
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       audioContext.current = ctx;
 
-      // Prova a connettere l'analizzatore (potrebbe fallire per CORS su alcuni domini)
+      // Proviamo a connettere l'analizzatore per gli effetti visivi
       try {
         const source = ctx.createMediaElementSource(audioRef.current);
         const node = ctx.createAnalyser();
@@ -105,34 +96,35 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         analyzer.current = node;
         freqData.current = new Uint8Array(node.frequencyBinCount);
       } catch (e) {
-        console.warn("CORS restrictions: Analyzer disabled, direct playback only.");
-        // Se createMediaElementSource fallisce, l'audioElement è già connesso all'output di default del browser
+        // Se fallisce per CORS, l'audio suonerà comunque ma senza visualizer
+        console.warn("Visualizer disabled due to CORS/security restrictions.");
       }
       
       await ctx.resume();
     } catch (e) {
-      console.error("Web Audio init failed", e);
+      console.error("Audio Context failed to start:", e);
     }
     
     setIsReadyToStart(true);
   };
 
   const createParticles = (x: number, y: number, color: string) => {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 15; i++) {
       particles.current.push({
         x, y,
-        vx: (Math.random() - 0.5) * 15,
-        vy: (Math.random() - 0.5) * 15,
+        vx: (Math.random() - 0.5) * 20,
+        vy: (Math.random() - 0.5) * 20,
         life: 1.0,
         color
       });
     }
   };
 
-  const handleHit = useCallback((timestamp: number) => {
-    if (!isActive) return;
+  const handleHit = useCallback(() => {
+    if (!isActive || !audioRef.current) return;
     
-    const diff = Math.abs(timestamp - nextBeatTime.current);
+    const audioTime = audioRef.current.currentTime * 1000;
+    const diff = Math.abs(audioTime - nextBeatTime.current);
     let rating = 'MISS';
     let points = 0;
 
@@ -143,11 +135,11 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     } else if (diff <= HIT_WINDOWS.GREAT) {
       rating = 'GREAT';
       points = 500;
-      shakeAmount.current = 12;
+      shakeAmount.current = 15;
     } else if (diff <= HIT_WINDOWS.GOOD) {
       rating = 'GOOD';
       points = 200;
-      shakeAmount.current = 6;
+      shakeAmount.current = 8;
     }
 
     if (rating !== 'MISS') {
@@ -160,7 +152,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
                 good: rating === 'GOOD' ? prev.good + 1 : prev.good,
                 combo: newCombo,
                 maxCombo: Math.max(prev.maxCombo, newCombo),
-                totalScore: prev.totalScore + (points * (1 + newCombo * 0.05))
+                totalScore: prev.totalScore + (points * (1 + newCombo * 0.1))
             };
         });
         createParticles(
@@ -173,37 +165,39 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
     }
 
     setLastRating(rating);
-    setTimeout(() => setLastRating(null), 350);
+    setTimeout(() => setLastRating(null), 400);
   }, [isActive, song.color, nextBeatTime]);
 
-  const update = useCallback((time: number) => {
-    if (!isActive) {
+  const update = useCallback(() => {
+    if (!isActive || !audioRef.current) {
       requestRef.current = requestAnimationFrame(update);
       return;
     }
 
-    // Usiamo il tempo di sistema per la sincronizzazione se l'audio non è affidabile
-    const elapsed = performance.now() - startTime.current;
+    const audioTime = audioRef.current.currentTime * 1000;
     
-    if (elapsed > nextBeatTime.current) {
+    // Sincronizzazione beat
+    if (audioTime > nextBeatTime.current) {
       nextBeatTime.current += beatInterval;
       ballState.current.side = ballState.current.side === 'left' ? 'right' : 'left';
     }
 
-    const timeSinceLastBeat = (elapsed - (nextBeatTime.current - beatInterval)) % beatInterval;
+    const timeSinceLastBeat = (audioTime - (nextBeatTime.current - beatInterval)) % beatInterval;
     const progressInBeat = Math.max(0, Math.min(1, timeSinceLastBeat / beatInterval));
     
     const wallL = 70;
     const wallR = 570;
     const distance = wallR - wallL;
 
+    // Movimento orizzontale
     if (ballState.current.side === 'right') {
       ballState.current.x = wallL + (progressInBeat * distance);
     } else {
       ballState.current.x = wallR - (progressInBeat * distance);
     }
 
-    const jumpHeight = 160;
+    // Movimento a parabola
+    const jumpHeight = 200;
     ballState.current.y = 250 - (Math.sin(progressInBeat * Math.PI) * jumpHeight);
 
     const canvas = canvasRef.current;
@@ -213,7 +207,7 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         let visualModifier = 0;
         if (analyzer.current && freqData.current) {
           analyzer.current.getByteFrequencyData(freqData.current);
-          visualModifier = (freqData.current[1] / 255) * 40;
+          visualModifier = (freqData.current[1] / 255) * 60;
         }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -221,45 +215,44 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
         ctx.save();
         if (shakeAmount.current > 0) {
           ctx.translate((Math.random() - 0.5) * shakeAmount.current, (Math.random() - 0.5) * shakeAmount.current);
-          shakeAmount.current *= 0.85;
+          shakeAmount.current *= 0.9;
         }
 
-        ctx.lineWidth = 22;
+        // Muri laterali
+        ctx.lineWidth = 24;
         ctx.lineCap = 'round';
         
-        // Muri neon
-        ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#151515';
+        ctx.strokeStyle = ballState.current.side === 'left' ? song.color : '#1a1a1a';
         ctx.shadowBlur = ballState.current.side === 'left' ? 40 : 0;
         ctx.shadowColor = song.color;
         ctx.beginPath(); ctx.moveTo(wallL, 100); ctx.lineTo(wallL, 400); ctx.stroke();
         
-        ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#151515';
+        ctx.strokeStyle = ballState.current.side === 'right' ? song.color : '#1a1a1a';
         ctx.shadowBlur = ballState.current.side === 'right' ? 40 : 0;
         ctx.beginPath(); ctx.moveTo(wallR, 100); ctx.lineTo(wallR, 400); ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Effetti particellari
+        // Particelle
         particles.current = particles.current.filter(p => p.life > 0);
         particles.current.forEach(p => {
           ctx.globalAlpha = p.life;
           ctx.fillStyle = p.color;
-          ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
-          p.x += p.vx; p.y += p.vy; p.life -= 0.04;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+          p.x += p.vx; p.y += p.vy; p.life -= 0.03;
         });
         ctx.globalAlpha = 1.0;
 
-        // Pallina Ultra-Visibile
+        // La Pallina (Sempre visibile)
         ctx.fillStyle = song.color;
-        ctx.shadowBlur = 60 + visualModifier;
+        ctx.shadowBlur = 50 + visualModifier;
         ctx.shadowColor = song.color;
         ctx.beginPath();
-        ctx.arc(ballState.current.x, ballState.current.y, 28 + (visualModifier / 8), 0, Math.PI * 2);
+        ctx.arc(ballState.current.x, ballState.current.y, 30 + (visualModifier / 8), 0, Math.PI * 2);
         ctx.fill();
         
-        // Nucleo bianco per profondità
         ctx.fillStyle = 'white';
         ctx.beginPath();
-        ctx.arc(ballState.current.x, ballState.current.y, 14, 0, Math.PI * 2);
+        ctx.arc(ballState.current.x, ballState.current.y, 15, 0, Math.PI * 2);
         ctx.fill();
         
         ctx.shadowBlur = 0;
@@ -267,16 +260,14 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       }
     }
 
-    if (audioRef.current) {
-        const duration = audioRef.current.duration || 180;
-        const p = (audioRef.current.currentTime / duration) * 100;
-        setProgress(p);
+    const duration = audioRef.current.duration || 1;
+    const p = (audioRef.current.currentTime / duration) * 100;
+    setProgress(p);
 
-        if (audioRef.current.ended || p >= 100) {
-          setIsActive(false);
-          onFinish(score);
-          return;
-        }
+    if (audioRef.current.ended) {
+      setIsActive(false);
+      onFinish(score);
+      return;
     }
 
     requestRef.current = requestAnimationFrame(update);
@@ -290,11 +281,14 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
       return () => clearTimeout(timer);
     } else {
       setIsActive(true);
-      startTime.current = performance.now();
       nextBeatTime.current = beatInterval;
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(e => console.warn("Autoplay block bypass:", e));
+        audioRef.current.play().catch(e => {
+          console.error("Playback failed:", e);
+          setIsActive(false);
+          setAudioError(true);
+        });
       }
       requestRef.current = requestAnimationFrame(update);
     }
@@ -303,83 +297,86 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
   const handleInput = (e: React.MouseEvent | React.KeyboardEvent) => {
     if (!isActive) return;
     if (e.type === 'keydown' && (e as React.KeyboardEvent).code !== 'Space') return;
-    handleHit(performance.now() - startTime.current);
+    handleHit();
   };
 
   return (
     <div 
-      className="relative w-full h-screen bg-[#050505] flex flex-col items-center justify-center select-none outline-none overflow-hidden"
+      className="relative w-full h-screen bg-[#020202] flex flex-col items-center justify-center select-none outline-none overflow-hidden"
       onMouseDown={handleInput}
       tabIndex={0}
       onKeyDown={handleInput}
     >
+      {/* Schermo di caricamento e inizio */}
       {!isReadyToStart && (
-        <div className="absolute inset-0 z-[100] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center">
-            <div className={`w-32 h-32 rounded-full mb-8 flex items-center justify-center shadow-2xl transition-all duration-500 ${isAudioLoading ? 'scale-75 opacity-50' : 'scale-100 opacity-100 animate-pulse'}`} style={{ backgroundColor: song.color }}>
-                {isAudioLoading ? <Loader2 className="w-12 h-12 text-black animate-spin" /> : <Play fill="black" className="w-12 h-12 text-black ml-1" />}
+        <div className="absolute inset-0 z-[100] bg-black flex flex-col items-center justify-center p-8 text-center">
+            <div className={`w-36 h-36 rounded-full mb-10 flex items-center justify-center shadow-[0_0_60px_rgba(255,255,255,0.1)] transition-all duration-700 ${isAudioLoading ? 'scale-75 opacity-30 animate-pulse' : 'scale-100 opacity-100'}`} style={{ backgroundColor: song.color }}>
+                {isAudioLoading ? <Loader2 className="w-16 h-16 text-black animate-spin" /> : <Play fill="black" className="w-16 h-16 text-black ml-2" />}
             </div>
             
-            <h2 className="text-5xl font-orbitron font-black text-white mb-2 tracking-tighter uppercase">{song.title}</h2>
-            <p className="text-zinc-500 mb-10 uppercase tracking-[0.3em] font-bold text-xs">
-              {audioError ? "Errore caricamento audio. Gioca in modalità silenziosa?" : "Sincronizza il ritmo"}
+            <h2 className="text-6xl font-orbitron font-black text-white mb-4 tracking-tighter uppercase italic">{song.title}</h2>
+            <p className="text-zinc-600 mb-12 uppercase tracking-[0.5em] font-bold text-xs">
+              {audioError ? "Errore caricamento. Riprova o scegli un'altra traccia." : "Preparati alla sfida"}
             </p>
             
             <button 
                 onClick={startSequence}
                 disabled={isAudioLoading}
-                className="group relative px-20 py-8 bg-white text-black font-orbitron font-black text-4xl rounded-3xl hover:scale-105 active:scale-95 transition-all disabled:opacity-20 shadow-[0_0_50px_rgba(255,255,255,0.15)]"
+                className="group relative px-24 py-10 bg-white text-black font-orbitron font-black text-5xl rounded-full hover:scale-105 active:scale-95 transition-all disabled:opacity-20 shadow-[0_0_80px_rgba(255,255,255,0.2)]"
             >
-                <span className="relative z-10">{isAudioLoading ? "CARICAMENTO..." : "GIOCA"}</span>
-                <div className="absolute inset-0 bg-zinc-200 rounded-3xl scale-0 group-hover:scale-100 transition-transform origin-center duration-300" />
+                <span className="relative z-10 uppercase tracking-widest">{isAudioLoading ? "CARICAMENTO" : "GIOCA"}</span>
             </button>
 
             {audioError && (
-              <div className="mt-8 flex items-center gap-2 text-red-500/80 text-xs font-bold uppercase tracking-widest">
-                <AlertCircle className="w-4 h-4" /> Problema con il server audio
+              <div className="mt-10 flex items-center gap-3 text-red-500 font-bold uppercase tracking-widest text-sm bg-red-500/10 px-6 py-3 rounded-full border border-red-500/20">
+                <AlertCircle className="w-5 h-5" /> Connessione audio fallita
               </div>
             )}
         </div>
       )}
 
-      {/* Interfaccia in-game */}
-      <div className="absolute top-0 w-full p-8 flex justify-between items-start pointer-events-none z-20">
+      {/* Header Info */}
+      <div className="absolute top-0 w-full p-10 flex justify-between items-start pointer-events-none z-20">
         <button 
           onClick={(e) => { e.stopPropagation(); onBack(); }}
-          className="pointer-events-auto flex items-center gap-3 text-zinc-600 hover:text-white transition-all font-orbitron text-[10px] tracking-[0.5em] group"
+          className="pointer-events-auto flex items-center gap-4 text-zinc-500 hover:text-white transition-all font-orbitron text-[10px] tracking-[0.8em] group"
         >
-          <div className="w-10 h-10 rounded-full border border-zinc-900 flex items-center justify-center group-hover:border-white group-hover:bg-white/10">
-            <ChevronLeft className="w-5 h-5" />
+          <div className="w-12 h-12 rounded-full border border-zinc-900 flex items-center justify-center group-hover:border-white group-hover:bg-white/10">
+            <ChevronLeft className="w-6 h-6" />
           </div>
-          MENU
+          CHIUDI
         </button>
 
         <div className="flex flex-col items-end">
-          <div className="text-7xl font-orbitron font-black text-white tabular-nums tracking-tighter drop-shadow-2xl">
+          <div className="text-8xl font-orbitron font-black text-white tabular-nums tracking-tighter drop-shadow-2xl">
             {Math.floor(score.totalScore).toLocaleString()}
           </div>
-          <div className="text-zinc-700 font-bold text-[10px] tracking-[0.6em] mt-1 uppercase" style={{ color: song.color }}>SCORE</div>
+          <div className="text-zinc-700 font-bold text-[12px] tracking-[1em] mt-2 uppercase" style={{ color: song.color }}>SCORE</div>
         </div>
       </div>
 
-      <div className="absolute top-0 left-0 w-full h-2 bg-zinc-900/50">
+      {/* Progress Bar */}
+      <div className="absolute top-0 left-0 w-full h-3 bg-zinc-900/50">
         <div 
-          className="h-full transition-all duration-300 shadow-[0_0_20px_white]"
+          className="h-full transition-all duration-300 shadow-[0_0_30px_white]"
           style={{ width: `${progress}%`, backgroundColor: song.color }}
         />
       </div>
 
+      {/* Main Game Area */}
       <div className="relative w-full max-w-6xl aspect-video flex items-center justify-center">
         <canvas 
           ref={canvasRef} 
           width={640} 
           height={500} 
-          className="w-full h-auto max-h-[80vh] object-contain relative z-10"
+          className="w-full h-auto max-h-[85vh] object-contain relative z-10"
         />
         
+        {/* Rating Popup */}
         {lastRating && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
             <div 
-              className={`text-[12rem] font-orbitron font-black italic transform transition-all duration-100 scale-125 drop-shadow-[0_0_30px_rgba(0,0,0,1)] ${
+              className={`text-[15rem] font-orbitron font-black italic transform transition-all duration-100 scale-125 drop-shadow-[0_0_60px_rgba(0,0,0,1)] ${
                 lastRating === 'PERFECT' ? 'text-yellow-400' :
                 lastRating === 'GREAT' ? 'text-cyan-400' :
                 lastRating === 'GOOD' ? 'text-green-400' : 'text-red-600'
@@ -390,37 +387,40 @@ const Game: React.FC<Props> = ({ song, onFinish, onBack }) => {
           </div>
         )}
 
+        {/* Combo Indicator */}
         {score.combo > 1 && (
-          <div className="absolute bottom-5 w-full text-center z-20">
+          <div className="absolute bottom-10 w-full text-center z-20">
             <div className="inline-flex flex-col items-center">
-              <span className="text-[12rem] font-orbitron text-white font-black tracking-tighter leading-none animate-bounce" style={{ color: song.color, textShadow: `0 0 50px ${song.color}` }}>
+              <span className="text-[14rem] font-orbitron text-white font-black tracking-tighter leading-none animate-bounce" style={{ color: song.color, textShadow: `0 0 60px ${song.color}` }}>
                 {score.combo}
               </span>
-              <span className="text-xl font-orbitron text-white/30 tracking-[1.5em] -mt-6">STREAK</span>
+              <span className="text-3xl font-orbitron text-white/20 tracking-[1.5em] -mt-10">COMBO</span>
             </div>
           </div>
         )}
       </div>
 
+      {/* Countdown Overlay */}
       {isReadyToStart && countdown > 0 && (
-        <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-2xl flex flex-col items-center justify-center text-white">
-          <div className="text-[25rem] font-orbitron font-black animate-pulse">
+        <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center text-white">
+          <div className="text-[30rem] font-orbitron font-black animate-ping text-white">
             {countdown}
           </div>
-          <div className="text-zinc-600 font-bold tracking-[2em] uppercase text-sm mt-10">Get Ready</div>
+          <div className="text-zinc-700 font-bold tracking-[3em] uppercase text-xl mt-12">SALTA A TEMPO</div>
         </div>
       )}
 
-      <div className="absolute bottom-16 flex flex-col items-center gap-4">
-        <div className="px-10 py-5 rounded-full bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-3xl text-[10px] font-orbitron text-zinc-500 tracking-[0.5em] uppercase flex items-center gap-10 shadow-2xl">
-          <div className="flex items-center gap-4">
-             <span className="text-black bg-white px-3 py-1 rounded-lg font-black text-lg">SPACE</span>
-             <span>SALTA</span>
+      {/* Control Instruction */}
+      <div className="absolute bottom-20 flex flex-col items-center gap-6">
+        <div className="px-14 py-7 rounded-full bg-zinc-900/40 border border-zinc-800/40 backdrop-blur-2xl text-[12px] font-orbitron text-zinc-500 tracking-[0.6em] uppercase flex items-center gap-14 shadow-2xl">
+          <div className="flex items-center gap-5">
+             <span className="text-black bg-white px-5 py-2 rounded-xl font-black text-2xl shadow-[0_0_20px_white]">BARRA SPAZIO</span>
+             <span>COLPISCI IL MURO</span>
           </div>
-          <div className="w-2 h-2 rounded-full bg-zinc-800" />
-          <div className="flex items-center gap-4 text-white/80">
-             <Zap className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-             <span>HIT THE BEAT</span>
+          <div className="w-3 h-3 rounded-full bg-zinc-800" />
+          <div className="flex items-center gap-5 text-white/60">
+             <Zap className="w-7 h-7 text-yellow-500 fill-yellow-500" />
+             <span>SEGUE IL RITMO</span>
           </div>
         </div>
       </div>
